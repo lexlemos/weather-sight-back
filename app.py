@@ -1,5 +1,6 @@
 # app.py
 from flask import Flask, request, jsonify
+import os  
 import requests
 from datetime import datetime
 from flask_cors import CORS
