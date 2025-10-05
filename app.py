@@ -1,25 +1,18 @@
 # app.py
 from flask import Flask, request, jsonify
-import os  
+import os
 import requests
 from datetime import datetime
 from flask_cors import CORS
 
 app = Flask(__name__)
 
-# --- SOLUÇÃO SIMPLIFICADA E ROBUSTA ---
-# Esta única linha é suficiente. 
-# Ela diz ao Flask-CORS para permitir requisições da sua origem do frontend
-# e para lidar automaticamente com as requisições OPTIONS.
 frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8081')
 CORS(app, origins=frontend_url)
-print("--- SUCESSO: A configuração do CORS foi aplicada ao app! ---")
-# --- O resto do seu código permanece o mesmo ---
-weather_cache = {}
 
+# A função analyze_data não precisa de alterações
 def analyze_data(weather_data, target_date_str):
-    # ... (sua função analyze_data sem alterações)
-    # ... (cole sua função analyze_data aqui)
+    # ... (sua função analyze_data continua aqui, sem nenhuma mudança)
     THRESHOLDS = {"hot": 32.0, "cold": 10.0, "windy": 35.0, "rainy": 1.0}
     counters = {"matching_days": 0, "hot_days": 0, "cold_days": 0, "windy_days": 0, "rainy_days": 0, "any_rain_days": 0}
     daily_temps, daily_humidity, daily_wind_speeds = [], [], []
@@ -72,9 +65,9 @@ def analyze_data(weather_data, target_date_str):
     }
     return results
 
+# A função get_nasa_image_url não precisa de alterações
 def get_nasa_image_url(latitude, longitude, date_str):
-    # ... (sua função get_nasa_image_url sem alterações)
-    # ... (cole sua função get_nasa_image_url aqui)
+    # ... (sua função get_nasa_image_url continua aqui, sem nenhuma mudança)
     try:
         target_date = datetime.strptime(date_str, '%Y-%m-%d')
         last_year = datetime.now().year - 1
@@ -89,42 +82,42 @@ def get_nasa_image_url(latitude, longitude, date_str):
         return None
 
 def get_historical_weather(location_name):
-    # ... (sua função get_historical_weather sem alterações)
-    # ... (cole sua função get_historical_weather aqui)
-    if location_name in weather_cache:
-        print(f"CACHE HIT: Found data for '{location_name}' in cache.")
-        cached_data = weather_cache[location_name]
-        return cached_data['weather_data'], cached_data['lat'], cached_data['lon'], None
-    print(f"CACHE MISS: Fetching new data for '{location_name}' from API.")
+    # REMOVIDA A LÓGICA DE CACHE
+    print(f"Fetching new data for '{location_name}' from API.")
     try:
         geocoding_url = "https://geocoding-api.open-meteo.com/v1/search"
         geo_params = {"name": location_name, "count": 1, "language": "en", "format": "json"}
-        geo_response = requests.get(geocoding_url, params=geo_params, timeout=30)
+        # TIMEOUT REDUZIDO PARA 10 SEGUNDOS
+        geo_response = requests.get(geocoding_url, params=geo_params, timeout=10)
         geo_response.raise_for_status()
         geo_data = geo_response.json()
-        if not geo_data.get("results"): return None, None, None, f"Could not find coordinates for '{location_name}'"
+
+        if not geo_data.get("results"):
+            return None, None, None, f"Could not find coordinates for '{location_name}'"
+        
         result = geo_data["results"][0]
         latitude, longitude = result["latitude"], result["longitude"]
+        
         historical_api_url = "https://archive-api.open-meteo.com/v1/archive"
         end_year = datetime.now().year - 1
-        start_year = end_year - 20 
+        start_year = end_year - 20
         daily_params = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,relative_humidity_2m_mean"
         params = {"latitude": latitude, "longitude": longitude, "start_date": f"{start_year}-01-01", "end_date": f"{end_year}-12-31", "daily": daily_params, "timezone": "auto"}
-        response = requests.get(historical_api_url, params=params, timeout=30)
+        # TIMEOUT REDUZIDO PARA 15 SEGUNDOS (esta API pode ser mais lenta)
+        response = requests.get(historical_api_url, params=params, timeout=15)
         response.raise_for_status()
         weather_data = response.json()
-        weather_cache[location_name] = {
-            "weather_data": weather_data,
-            "lat": latitude,
-            "lon": longitude
-        }
+        
         return weather_data, latitude, longitude, None
+
+    except requests.exceptions.Timeout:
+        error_msg = "API request timed out. Please try again."
+        print(f"ERROR: {error_msg}")
+        return None, None, None, error_msg
     except requests.exceptions.HTTPError as e:
+        error_msg = f"HTTP Error fetching data: {e}"
         if e.response.status_code == 429:
             error_msg = "API rate limit exceeded. Please wait a minute and try again."
-            print(f"ERROR: {error_msg}")
-            return None, None, None, error_msg
-        error_msg = f"HTTP Error fetching data: {e}"
         print(f"ERROR: {error_msg}")
         return None, None, None, error_msg
     except requests.exceptions.RequestException as e:
@@ -132,13 +125,13 @@ def get_historical_weather(location_name):
         print(f"ERROR: {error_msg}")
         return None, None, None, error_msg
 
-
-# --- ROTA CORRIGIDA ---
-# Remova 'OPTIONS' daqui. Flask-CORS vai cuidar disso.
 @app.route('/analyze', methods=['POST'])
 def analyze_weather():
-    # Agora esta linha é segura, pois a rota só aceita POST
-    data = request.get_json()
+    # VALIDAÇÃO SEGURA DO JSON
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON in request body"}), 400
+
     location = data.get('location')
     date_str = data.get('date')
 
@@ -148,7 +141,7 @@ def analyze_weather():
     weather_data, lat, lon, error_message = get_historical_weather(location)
     
     if error_message:
-        status_code = 503 if "rate limit" in error_message else 500
+        status_code = 503 if "rate limit" in error_message or "timed out" in error_message else 500
         return jsonify({"error": error_message}), status_code
     
     analysis_results = analyze_data(weather_data, date_str)
@@ -163,5 +156,6 @@ def analyze_weather():
     
     return jsonify(final_response)
 
+# O if __name__ == '__main__' não é usado pela Render, mas é bom manter para testes locais
 if __name__ == '__main__':
     app.run(debug=True)
